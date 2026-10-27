@@ -1,0 +1,40 @@
+cff-version: 1.2.0
+message: "If you use the software, cite the DiaLexPoL paper and this release."
+title: "DiaLexPoL: LLM-assisted Sense Assignment for a Diachronic Dictionary of Latin — code and prompts"
+authors:
+  - family-names: Nowak
+    given-names: Krzysztof
+  - family-names: Krawczyk
+    given-names: Iwona
+  - family-names: Marszałek
+    given-names: Jagoda
+version: "1.0.0"
+doi: 10.5281/zenodo.21626003
+url: https://doi.org/10.5281/zenodo.21626003
+references:
+  - type: dataset
+    title: "DiaLexPoL WSD datasets"
+    doi: 10.5281/zenodo.21625867
+  - type: conference-paper
+    title: "DiaLexPoL: LLM-assisted Sense Assignment for a Diachronic Dictionary of Latin"
+    authors:
+      - family-names: Nowak
+        given-names: Krzysztof
+      - family-names: Krawczyk
+        given-names: Iwona
+      - family-names: Marszałek
+        given-names: Jagoda
+    year: 2026
+    collection-title: "Lexicography in the Age of AI. Proceedings of the XXII Euralex International Congress 2026"
+preferred-citation:
+  type: software
+  title: "DiaLexPoL: LLM-assisted Sense Assignment for a Diachronic Dictionary of Latin — code and prompts"
+  authors:
+    - family-names: Nowak
+      given-names: Krzysztof
+    - family-names: Krawczyk
+      given-names: Iwona
+    - family-names: Marszałek
+      given-names: Jagoda
+  year: 2026
+  doi: 10.5281/zenodo.21626003

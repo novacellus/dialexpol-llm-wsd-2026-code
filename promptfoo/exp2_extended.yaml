@@ -1,0 +1,59 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+description: "Exp 2 EXTENDED — future-work/showcase: the 24 cells outside CORE (context +prev and/or show_metadata on)"
+
+# ===========================================================================
+# EXTENDED scenario — sibling of promptfooconfig.exp2_core.yaml. Identical
+# providers, prompts, decoding, and assertion; the test generator emits the
+# 24 cells CORE does NOT cover: any context_length=kwic_plus_prev and/or
+# show_metadata=on. DISJOINT from CORE by construction (generate_extended drops
+# the kwic_only+meta-off cell), so CORE + EXTENDED = the full 32-cell grid with
+# zero overlap — run independently, no double-pay, no cache reliance.
+#
+# These axes are reported as PRELIMINARY / future work, not headline:
+#   - context_length=kwic_plus_prev adds the previous sentence (prev_context
+#     block); the +prev effect rests on the ~646 fully-untruncated records.
+#   - show_metadata=on renders the source_metadata block — a one-sentence
+#     provenance line composed by exp2_transform.py from
+#     data/final/exp2/metadata/metadata.csv (joined on siglum).
+# See analysis/exp2_design_decisions.md "Core vs extended scenarios" /
+# "Period/author metadata" / "Context length".
+#
+# Scale: 4 prompts × 5022 cases × 5 providers ≈ 100K calls (~$5.5–6.5).
+# ===========================================================================
+evaluateOptions:
+  maxConcurrency: 16
+
+prompts:
+  - file://prompts/exp2/rendered/exp2_zeroshot.txt
+  - file://prompts/exp2/rendered/exp2_zeroshot_decomposed.txt
+  - file://prompts/exp2/rendered/exp2_fewshot.txt
+  - file://prompts/exp2/rendered/exp2_justified.txt
+
+decoding: &decoding
+  temperature: 0
+  max_tokens: 1024
+
+providers:
+  - id: openrouter:google/gemma-4-31b-it
+    label: gemma-4-31b-it
+    config: { <<: *decoding }
+  - id: openrouter:qwen/qwen3-235b-a22b-2507
+    label: qwen3-235b-a22b-2507
+    config: { <<: *decoding }
+  - id: openrouter:meta-llama/llama-4-maverick
+    label: llama-4-maverick
+    config: { <<: *decoding }
+  - id: openrouter:meta-llama/llama-3.3-70b-instruct
+    label: llama-3.3-70b-instruct
+    config: { <<: *decoding }
+  - id: openrouter:deepseek/deepseek-chat-v3-0324
+    label: deepseek-chat-v3-0324
+    config: { <<: *decoding }
+
+# generate_extended: the 24 non-CORE cells (kwic_plus_prev and/or meta on).
+tests: file://scripts/exp2_tests.py:generate_extended
+
+defaultTest:
+  assert:
+    - type: python
+      value: file://scripts/exp2_assert.py

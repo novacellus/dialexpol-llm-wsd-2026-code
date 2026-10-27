@@ -1,0 +1,209 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+description: "Exp 1 — Lexicography on Budget scenario: sense-assignment screening with deployable models"
+
+# Concurrency: docs/openrouter/promptfoo.md records 8 as tested-safe on this
+# lineup; 16 is the next step. Drop to 8 if HTTP 429s appear in the SQLite
+# error column. CLI -j / --max-concurrency still overrides.
+evaluateOptions:
+  maxConcurrency: 16
+
+# ===========================================================================
+# This config is the operational artifact for the budget-scoped paper
+# scenario documented in docs/PLAN_BUDGET.md. The max-version Phase A
+# config — flagships in lineup, Phase-B-only carve-out, full-CoT add-on
+# routing — is preserved unchanged in promptfooconfig.yaml.
+#
+# Under this scenario (see PLAN_BUDGET.md §§1–3):
+#   - No flagship models (GPT-5.5, Claude Opus 4.7) — excluded by design,
+#     not deferred. Rationale: audience fit (DH / computational-lexicography),
+#     reproducibility (closed-API drift), data sovereignty.
+#   - No Phase-B-only carve-out — every lineup model runs the full Phase A
+#     variable matrix and Phase B on the disjoint lemma set.
+#   - No full-CoT add-on — DeepSeek-V4-pro is absent from the lineup;
+#     the structured-justification template stands on its own (no parity
+#     claim with open-ended CoT is made).
+#
+# Shared infrastructure (data prep, prompt-component spec, evaluation
+# metrics, statistical procedures) is identical to PLAN.md; see
+# PLAN_BUDGET.md §§1, 3.2 for the file-by-file delta.
+# ===========================================================================
+
+# ===========================================================================
+# PROMPTS — PLAIN-output templates only (zeroshot, fewshot, justified) plus
+# the decomposed-task zeroshot ablation. The JSON-output variants live in
+# the sibling promptfooconfig.budget.json.yaml so they can carry per-provider
+# response_format / constrained-decoding config without polluting these
+# templates' open output expectation.
+#
+# All templates are GENERATED from the component spec by prompts/exp1/
+# render.py; edit prompts/exp1/components.yaml + conditions.yaml and re-run
+# render.py, never edit rendered/*.txt directly.
+#
+# The free-form (P1.1) add-on is intentionally NOT here — it shows no
+# inventory and needs a judge-LLM mapping step, so it gets its own config
+# once that wiring exists. The full-CoT (P2.2) add-on is dropped entirely
+# under the budget scenario (PLAN_BUDGET.md §3.3) — no reasoning-native
+# model in the lineup makes the comparison uninformative.
+#
+# The orthogonal axes (def_language, granularity, show_metadata) are NOT extra
+# prompt files — they are baked into each test case by scripts/exp1_tests.py
+# and consumed by scripts/transform.py. 4 prompts here, not 64.
+# ===========================================================================
+prompts:
+  - file://prompts/exp1/rendered/exp1_zeroshot.txt
+  - file://prompts/exp1/rendered/exp1_zeroshot_decomposed.txt   # ABLATION (§3.1 / item 9)
+  - file://prompts/exp1/rendered/exp1_fewshot.txt
+  - file://prompts/exp1/rendered/exp1_justified.txt
+
+# ===========================================================================
+# MODELS — budget scenario lineup, "current" edition (see
+# docs/model_lineup_scenarios_budget.csv). All routed via OpenRouter — one
+# key (OPENROUTER_API_KEY in 2026/ai/.env).
+#
+# The 5 core models replicate today's Phase A mid-tier set verbatim — they
+# already meet the budget scenario's inclusion criteria (PLAN_BUDGET.md
+# §4.1: API ≤ $5/MTok input OR self-hostable on consumer/workstation GPU).
+# Optional B-extended additions (14 B + 8 B class) are listed as commented
+# stubs below; they implement the floor-finding question that is the budget
+# scenario's distinctive contribution (PLAN_BUDGET.md §4.2). Uncomment after
+# verifying provider IDs against the live OpenRouter catalog per §8.1, and
+# re-running the reasoning-control diagnostic from docs/openrouter/reasoning.md
+# on each route.
+#
+# Qwen lineage: the Qwen here is the Instruct (hard-coded non-thinking)
+# variant — qwen3-235b-a22b-2507 — not the Qwen3.5 hybrid that ignored
+# every disable knob we tried. `reasoning` is absent from this route's
+# `supported_parameters`, so the model literally cannot think. Catalog
+# 2026-05-15: $0.071/$0.10 per M tokens, 262k ctx.
+#
+# Provider IDs verified against the live OpenRouter catalog (2026-05-15).
+# Decoding params pinned per PLAN.md §2.2 (temperature 0, max_tokens 1024;
+# top_p left at provider default) — shared with the max-version config.
+# ===========================================================================
+decoding: &decoding
+  temperature: 0
+  max_tokens: 1024
+
+providers:
+  # --- closed-weight, mid-tier ---
+  # claude-haiku-4.5 — swapped from claude-sonnet-4.6 on 2026-05-15 (cost-driven,
+  # pilot evidence): Sonnet projected $3.96 of the pilot's spend at $3/$15 per
+  # MTok; Haiku 4.5 at $1/$5 per MTok is ~3× cheaper at the same prompt size,
+  # same vendor, same 4.x generation. Scholarship grounding unchanged — §3.1
+  # notes Claude is "conspicuously absent from published WSD papers"; any Claude
+  # variant satisfies the original-contribution claim. Diagnostic 2026-05-15
+  # confirmed clean non-thinking behaviour despite catalog `reasoning=yes` flag
+  # (baseline produced 0 reasoning tokens; `effort: "none"` accepted as no-op).
+  # Methodology log 2026-05-15g.
+  - id: openrouter:anthropic/claude-haiku-4.5
+    label: claude-haiku-4.5
+    config: { <<: *decoding }
+  # gemini-2.5-pro is reasoning-by-default DESPITE not advertising `reasoning`
+  # in `supported_parameters` (catalog signal is unreliable for this route —
+  # diagnostic 2026-05-15 saw 980/981 completion tokens spent on reasoning
+  # emitted as visible content; per-call cost ~$0.01). `effort: "none"` is
+  # rejected with `"Reasoning is mandatory for this endpoint and cannot be
+  # disabled."`; `effort: "minimal"` works and cuts per-call cost ~20×.
+  # See methodology log 2026-05-15g and openrouter/reasoning.md.
+  - id: openrouter:google/gemini-2.5-pro
+    label: gemini-2.5-pro
+    config:
+      temperature: 0
+      max_tokens: 1024
+      # CRITICAL: must use `passthrough:` — promptfoo's openrouter wrapper
+      # silently strips top-level `reasoning:` and `reasoning_effort:` keys
+      # from the outgoing body (verified 2026-05-15 via LOG_LEVEL=debug
+      # smoke, methodology log 2026-05-15h). The `passthrough` escape hatch
+      # injects arbitrary fields into the request body verbatim.
+      passthrough:
+        reasoning:
+          effort: minimal
+  # --- open-weight, large ---
+  - id: openrouter:meta-llama/llama-4-maverick
+    label: llama-4-maverick
+    config: { <<: *decoding }
+  - id: openrouter:qwen/qwen3-235b-a22b-2507
+    label: qwen3-235b-a22b-2507
+    config: { <<: *decoding }
+  - id: openrouter:google/gemma-4-31b-it
+    label: gemma-4-31b-it
+    config: { <<: *decoding }
+  # --- B-extended (floor probe): consumer-laptop reference, performance floor,
+  #     and two sub-8B floor probes. All hard-coded non-thinking — provider
+  #     IDs verified against live OpenRouter catalog 2026-05-15 (methodology
+  #     log 2026-05-15e). Active for pilot scope per PLAN_BUDGET.md §5.3;
+  #     the pilot is the load-bearing format-failure check at this scale
+  #     tier (no separate per-route smoke needed for non-thinking routes).
+  #     Comment back out per route after pilot if any route shows
+  #     pathological format-failure rate.
+  - id: openrouter:microsoft/phi-4                          # 14B, consumer-laptop reference
+    label: phi-4
+    config: { <<: *decoding }
+  - id: openrouter:meta-llama/llama-3.1-8b-instruct         # 8B, performance floor
+    label: llama-3.1-8b-instruct
+    config: { <<: *decoding }
+  - id: openrouter:google/gemma-3-4b-it                     # 4B, sub-8B floor (Google lineage)
+    label: gemma-3-4b-it
+    config: { <<: *decoding }
+  - id: openrouter:meta-llama/llama-3.2-3b-instruct         # 3B, sub-8B floor (Meta lineage)
+    label: llama-3.2-3b-instruct
+    config: { <<: *decoding }
+  # --- B-extended (size ladder): large-dense 70B anchor distinct from the
+  #     two existing large MoEs in B core (Maverick 17B-active, Qwen3-235B
+  #     22B-active). Hard-coded non-thinking. (Methodology log 2026-05-15e.)
+  - id: openrouter:meta-llama/llama-3.3-70b-instruct
+    label: llama-3.3-70b-instruct
+    config: { <<: *decoding }
+  # --- B-extended (architectural diversity): hard-coded non-thinking V3
+  #     sibling of V4-pro (V4-pro is reasoning-by-default; deferred to the
+  #     full-CoT add-on, which is itself dropped under this scenario per
+  #     PLAN_BUDGET.md §3.3). Distinct lineage from Llama/Qwen/Gemma.
+  #     (Methodology log 2026-05-15e.)
+  - id: openrouter:deepseek/deepseek-chat-v3-0324
+    label: deepseek-chat-v3-0324
+    config: { <<: *decoding }
+  # --- B-extended (vendor diversity): hard-coded non-thinking OpenAI mid-tier.
+  #     Scholarship anchor — Sergidou et al. (2025) used gpt-4o-mini directly
+  #     for Latin WSD (scholarship §3.2), making it the most directly relevant
+  #     empirical precedent. Swapped from candidate openai/gpt-5-mini after
+  #     the reasoning-control diagnostic surfaced a route-specific "Reasoning
+  #     is mandatory" rejection of `effort: "none"`; gpt-4o-mini avoids the
+  #     quirk entirely and is also cheaper. (Methodology log 2026-05-15f;
+  #     per-route observation in docs/openrouter/reasoning.md.)
+  - id: openrouter:openai/gpt-4o-mini                       # alt: openrouter:openai/gpt-4o-mini-2024-07-18 (pinned snapshot)
+    label: gpt-4o-mini
+    config: { <<: *decoding }
+
+# Note on JSON output: This yaml runs the PLAIN-output templates only.
+# Provider-level structured output (response_format / constrained decoding)
+# on the JSON variants lives in promptfooconfig.budget.json.yaml — the same
+# 12 providers but each with response_format pointing at
+# prompts/exp1/wsd_answer.schema.json. The split is required because
+# response_format is provider-level and would otherwise force JSON on the
+# plain templates too (PROMPT_RECOMMENDATIONS.md §2.7 + Phase A 2026-05-15
+# per-provider verification smoke).
+
+# ===========================================================================
+# TEST CASES — the expanded screening matrix from scripts/exp1_tests.py.
+#   generate_phase_a : 2,676 cases — 8 quote-rich lemmas (PLAN.md §2.2)
+#                      × granularity × def_language × show_metadata
+# Swap to :generate_phase_b for the Phase B full evaluation.
+#
+# The generator emits FULLY-FORMED test cases — it applies
+# scripts/transform.py:get_vars itself, so each `vars` already carries
+# `senses`, `quotation_wsd`, `examples`, `freeform_lang`, normalised
+# `show_metadata`. No promptfoo `transform:` step is needed (and in current
+# promptfoo, top-level `transform` would transform the output, not the vars).
+# ===========================================================================
+tests: file://scripts/exp1_tests.py:generate_phase_a
+
+# ===========================================================================
+# ASSERTION — three-way outcome (PLAN.md §4.1): correct / wrong /
+# format_failure. Format failures are recorded as a fail with a
+# `format_failure:` reason prefix; the analysis notebook MUST separate them
+# from genuine wrong answers when computing accuracy. See scripts/exp1_assert.py.
+# ===========================================================================
+defaultTest:
+  assert:
+    - type: python
+      value: file://scripts/exp1_assert.py

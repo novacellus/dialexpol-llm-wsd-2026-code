@@ -1,0 +1,164 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+description: "Exp 1 — Lexicography on Budget scenario (JSON templates with constrained decoding)"
+
+# Concurrency: docs/openrouter/promptfoo.md records 8 as tested-safe on this
+# lineup; 16 is the next step. Drop to 8 if HTTP 429s appear in the SQLite
+# error column. CLI -j / --max-concurrency still overrides.
+evaluateOptions:
+  maxConcurrency: 16
+
+# ===========================================================================
+# Sibling config to promptfooconfig.budget.yaml — same scenario, same lineup,
+# same evaluation pipeline, but runs ONLY the JSON-output templates with
+# provider-level structured output (response_format → JSON schema) instead
+# of relying on instructions alone (PROMPT_RECOMMENDATIONS.md §2.7).
+#
+# Why two configs? response_format is a provider-level config field; setting
+# it on a provider would force JSON on every template that provider runs,
+# including the plain-output ones. The existing yaml's comment already
+# flagged that "the plain and JSON templates [need to be] split into sibling
+# configs" — this is that split.
+#
+# Per-provider verification (2026-05-15 smoke trail; methodology log to
+# follow): 11 of the 12 routes honor response_format with json_schema and
+# return clean structured JSON. Llama-3.2-3B emits empty content under any
+# JSON-schema constraint — consistent with its pilot 100% format-failure
+# rate and the "below tractability floor" role it plays (PLAN_BUDGET.md
+# §4.2 floor probe). The schema deliberately omits `minimum`/`maximum`
+# integer constraints because Anthropic-via-Bedrock rejects them; the
+# justification field's confidence value is post-validated in
+# scripts/exp1_assert.py if used downstream.
+# ===========================================================================
+
+# ===========================================================================
+# PROMPTS — only the *_json templates; the plain variants run from the
+# sibling yaml.
+# ===========================================================================
+prompts:
+  - file://prompts/exp1/rendered/exp1_zeroshot_json.txt
+  - file://prompts/exp1/rendered/exp1_zeroshot_decomposed_json.txt   # ABLATION (§3.1 / item 9)
+  - file://prompts/exp1/rendered/exp1_fewshot_json.txt
+  - file://prompts/exp1/rendered/exp1_justified_json.txt
+
+# ===========================================================================
+# Shared decoding params (PLAN.md §2.2) + JSON schema for constrained
+# decoding. The schema lives in prompts/exp1/wsd_answer.schema.json so
+# response_format references it via file:// rather than inlining (cleaner
+# diffs; one source of truth for the schema).
+# ===========================================================================
+decoding: &decoding
+  temperature: 0
+  max_tokens: 1024
+
+response_format_schema: &response_format
+  type: json_schema
+  json_schema:
+    name: wsd_answer
+    strict: true
+    schema: file://prompts/exp1/wsd_answer.schema.json
+
+# ===========================================================================
+# PROVIDERS — same 12 as the plain sibling, each gets response_format.
+# gemini-2.5-pro keeps its reasoning-disable knob; everything else is
+# response_format on top of the decoding anchor.
+# ===========================================================================
+providers:
+  # --- closed-weight, mid-tier ---
+  - id: openrouter:anthropic/claude-haiku-4.5
+    label: claude-haiku-4.5
+    config:
+      <<: *decoding
+      response_format: *response_format
+  - id: openrouter:google/gemini-2.5-pro
+    label: gemini-2.5-pro
+    config:
+      temperature: 0
+      max_tokens: 1024
+      # See sibling yaml for the gemini-2.5-pro reasoning-leak finding
+      # (methodology log 2026-05-15g); the passthrough form is mandatory
+      # because promptfoo's `openrouter:` wrapper strips top-level
+      # `reasoning:` (Gotcha 2 in docs/openrouter/promptfoo.md).
+      passthrough:
+        reasoning:
+          effort: minimal
+      response_format: *response_format
+  # --- open-weight, large ---
+  - id: openrouter:meta-llama/llama-4-maverick
+    label: llama-4-maverick
+    config:
+      <<: *decoding
+      response_format: *response_format
+  - id: openrouter:qwen/qwen3-235b-a22b-2507
+    label: qwen3-235b-a22b-2507
+    config:
+      <<: *decoding
+      response_format: *response_format
+  - id: openrouter:google/gemma-4-31b-it
+    label: gemma-4-31b-it
+    config:
+      <<: *decoding
+      response_format: *response_format
+  # --- B-extended (floor probe + ladder + arch + vendor diversity) ---
+  - id: openrouter:microsoft/phi-4                          # 14B, consumer-laptop reference
+    label: phi-4
+    config:
+      <<: *decoding
+      response_format: *response_format
+  - id: openrouter:meta-llama/llama-3.1-8b-instruct         # 8B, performance floor
+    label: llama-3.1-8b-instruct
+    config:
+      <<: *decoding
+      response_format: *response_format
+  - id: openrouter:google/gemma-3-4b-it                     # 4B, sub-8B floor (Google)
+    label: gemma-3-4b-it
+    config:
+      <<: *decoding
+      response_format: *response_format
+  - id: openrouter:meta-llama/llama-3.2-3b-instruct         # 3B, sub-8B floor (Meta)
+    label: llama-3.2-3b-instruct
+    config:
+      <<: *decoding
+      response_format: *response_format
+  # llama-3.3-70b — switched from strict json_schema to looser json_object
+  # mode (methodology log 2026-05-15j): two validation runs (smoke-json
+  # eval-8ii, mid25-json eval-Vqw) showed this route emits empty content
+  # ~24-31% of the time under `response_format.type: json_schema`, while
+  # the same route has ~0% format-failure in plain mode. The looser
+  # json_object mode forces valid JSON without enforcing the three-key
+  # schema; the trade is: give up key-presence enforcement on this single
+  # route, reclaim ~24% of its output. The other 11 providers continue
+  # using the shared json_schema anchor.
+  - id: openrouter:meta-llama/llama-3.3-70b-instruct
+    label: llama-3.3-70b-instruct
+    config:
+      <<: *decoding
+      response_format:
+        type: json_object
+  - id: openrouter:deepseek/deepseek-chat-v3-0324
+    label: deepseek-chat-v3-0324
+    config:
+      <<: *decoding
+      response_format: *response_format
+  - id: openrouter:openai/gpt-4o-mini                       # alt: openai/gpt-4o-mini-2024-07-18 (pinned)
+    label: gpt-4o-mini
+    config:
+      <<: *decoding
+      response_format: *response_format
+
+# ===========================================================================
+# TEST CASES — same generator as the plain sibling; the matrix is shared
+# (granularity × def_language × show_metadata, baked into vars). Swap to
+# :generate_phase_b for Phase B.
+# ===========================================================================
+tests: file://scripts/exp1_tests.py:generate_phase_a
+
+# ===========================================================================
+# ASSERTION — three-way outcome (PLAN.md §4.1). The assert script is
+# format-agnostic; with response_format enforcing valid JSON, the
+# "format_failure" branch should fire only when the model refuses or hits
+# token budget mid-output. Wrong-content failures still appear as `wrong`.
+# ===========================================================================
+defaultTest:
+  assert:
+    - type: python
+      value: file://scripts/exp1_assert.py

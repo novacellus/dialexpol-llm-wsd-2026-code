@@ -1,0 +1,69 @@
+# =============================================================================
+# Experiment 1 — template conditions
+# =============================================================================
+# Each entry under `templates:` is ONE rendered .txt file. `blocks` is the
+# ordered list of component blocks (from components.yaml) composed into it.
+#
+# This file controls ONLY build-time composition. The orthogonal run-time axes
+# (definition language, granularity, source metadata) are NOT separate
+# templates — they are promptfoo variables listed under `runtime_axes` and
+# applied per test case. 8 templates × runtime_axes = the PLAN §2.2 matrix.
+# =============================================================================
+
+# Run-time axes — multiplied across templates by promptfoo, not by render.py.
+runtime_axes:
+  def_language:                # which definition language fills {{senses}}
+    values: [la, pl]
+  granularity:                 # which data/final/ inventory file transform.py uses
+    values: [l1, l1l2]
+    notes: l1 -> senses_exp2_l1.csv ; l1l2 -> senses_exp2_l1l2.csv
+  show_metadata:               # toggles the source_metadata block
+    values: [true, false]
+
+# Build-time templates.
+templates:
+
+  # --- 6 base templates: {zeroshot, fewshot, justified} × {plain, json} ------
+  # Non-fewshot templates use the "quotation in primacy, sense list in recency"
+  # ordering per PROMPT_RECOMMENDATIONS.md §3.2(a): Liu et al. TACL 2024
+  # (Lost-in-the-Middle) + RULER / Ref-Long / SWiM updates. The sense
+  # inventory sits immediately before the task (the decision-relevant block
+  # right before the decision); the quotation gets primacy.
+  exp1_zeroshot:
+    blocks: [system_role, quotation, source_metadata, sense_inventory, task_direct, output_plain]
+  exp1_zeroshot_json:
+    blocks: [system_role, quotation, source_metadata, sense_inventory, task_direct, output_json]
+
+  # ABLATION (PROMPT_RECOMMENDATIONS.md §3.1, P2): decomposed-task variants of
+  # zeroshot, to test Mishra et al. (ACL 2022)'s "Reframing Instructional Prompts"
+  # decomposition gain on this task. Same block list as exp1_zeroshot* except
+  # task_direct → task_direct_decomposed. Run on one config in Phase A; if signal
+  # is positive, extend to fewshot / justified / fullcot.
+  exp1_zeroshot_decomposed:
+    blocks: [system_role, quotation, source_metadata, sense_inventory, task_direct_decomposed, output_plain]
+  exp1_zeroshot_decomposed_json:
+    blocks: [system_role, quotation, source_metadata, sense_inventory, task_direct_decomposed, output_json]
+
+  # Fewshot variants keep the older ordering for now (system_role → sense_inventory
+  # → fewshot_examples → quotation → ...). Demo placement under the new ordering
+  # is the open §3.2(a) design call flagged in PROMPT_RECOMMENDATIONS.md — settled
+  # together with the format-matching split (fewshot_examples ↔ fewshot_examples_json).
+  exp1_fewshot:
+    blocks: [system_role, sense_inventory, fewshot_examples, quotation, source_metadata, task_direct, output_plain]
+  exp1_fewshot_json:
+    blocks: [system_role, sense_inventory, fewshot_examples_json, quotation, source_metadata, task_direct, output_json]
+
+  exp1_justified:
+    blocks: [system_role, quotation, source_metadata, sense_inventory, task_justified, output_justified_plain]
+  exp1_justified_json:
+    blocks: [system_role, quotation, source_metadata, sense_inventory, task_justified, output_json]
+
+  # --- add-ons ---------------------------------------------------------------
+  exp1_fullcot:                # revision P2.2 — one strong model only
+    blocks: [system_role, quotation, source_metadata, sense_inventory, task_fullcot, output_json]
+
+  exp1_freeform:               # revision P1.1 — NO sense inventory shown
+    blocks: [system_role, quotation, source_metadata, task_freeform, output_freeform]
+    notes: >
+      Deliberately omits sense_inventory. def_language / granularity axes do
+      not apply here; only show_metadata does.

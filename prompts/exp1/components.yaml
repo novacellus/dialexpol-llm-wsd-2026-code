@@ -1,0 +1,250 @@
+# =============================================================================
+# Experiment 1 — prompt component spec  (SOURCE OF TRUTH)
+# =============================================================================
+# Flat prompts in rendered/ are GENERATED from this file by render.py.
+# Edit blocks here; never edit rendered/*.txt.
+#
+# Each block has:
+#   text        — the literal prompt fragment (may contain {{run-time vars}})
+#   description — what the block is for / why it exists
+#   vars        — run-time placeholders this block introduces (filled by
+#                 promptfoo + transform.py per test case)
+#   guard       — optional Nunjucks condition; block renders only when true
+#
+# Run-time variables NOT tied to a single block (set per promptfoo test case):
+#   def_language : la | pl      — which definition language fills {{senses}}
+#   granularity  : l1 | l1l2    — which sense-inventory file transform.py uses
+#   show_metadata: true | false — toggles the source_metadata block
+# These are the orthogonal axes of PLAN §2.2; they multiply templates without
+# adding files.
+# =============================================================================
+
+meta:
+  experiment: exp1
+  task: assign an SLS dictionary sense to a Latin quotation
+  plan_ref: docs/PLAN.md §2.1–§2.2
+
+blocks:
+
+  # ---------------------------------------------------------------------------
+  system_role:
+    description: >
+      Persona and high-level framing. Constant across every condition so the
+      role is never an uncontrolled variable. Deliberately neutral about the
+      task — it must fit both the sense-assignment conditions and the
+      free-form condition, so it states the role, object, and goal, not the
+      output mode (the output is set by the output_* block).
+    text: |
+      You are a lexicographer. You analyse quotations from Latin texts written
+      in medieval Poland to determine the sense in which words are used.
+
+  # ---------------------------------------------------------------------------
+  sense_inventory:
+    description: >
+      The candidate senses the model chooses from. Built by transform.py from
+      the lemma's inventory. Definition-bearing senses only (PLAN §7.4 mode 1);
+      granularity and definition language are run-time variables. The visible
+      "0. No matching sense" line is appended here, not in the data file,
+      because it isn't a sense — it's a structural abstention option (visible
+      abstention required for Yin et al. Findings ACL 2023; Zhang et al.
+      RoDEval EMNLP 2025).
+      NB: PLAN §2.2 lists POS as an always-on context field, but it is dropped
+      here — all 53 in-scope SLS lemmas are nouns, so {{pos}} would be constant
+      and disambiguate nothing.
+    vars:
+      - lemma
+      - senses
+    text: |
+      ## Dictionary entry: {{lemma}}
+
+      Candidate senses:
+      {{senses}}
+      0. No matching sense — the use does not fit any sense above.
+
+  # ---------------------------------------------------------------------------
+  quotation:
+    description: >
+      How the target quotation is introduced. The target word is wrapped in
+      <WSD>...</WSD> so the model never has to guess which token is the
+      headword — cheap insurance for a heavily inflected language (PLAN §2.2,
+      prompt-context-fields).
+    vars:
+      - quotation_wsd    # expanded quotation, target form wrapped in <WSD>...</WSD>
+    text: |
+      ## Quotation
+
+      {{quotation_wsd}}
+
+  # ---------------------------------------------------------------------------
+  source_metadata:
+    description: >
+      VARIABLE (show_metadata axis). Bibliographic context for the quotation.
+      Rendered only when show_metadata is true.
+    guard: show_metadata
+    vars:
+      - source           # work / collection siglum
+      - page
+      - date
+    text: |
+      Source: {{source}}, {{page}}, {{date}}
+
+  # ---------------------------------------------------------------------------
+  fewshot_examples:
+    description: >
+      VARIABLE (few-shot strategy only) — PLAIN demo format. Demonstrations
+      are sense-balanced, drawn from a held-out demo pool disjoint from the
+      test items (PLAN §2.2 / revision P1.3). Each demo renders as
+      "<quote>" -> N, matching the plain-output schema (output_plain).
+      Per Min et al. EMNLP 2022 the demo format must match the model's
+      expected output format — the JSON sibling block is fewshot_examples_json.
+    vars:
+      - examples         # rendered: "<quote>" -> <sense number>, one per line
+    text: |
+      ## Examples
+
+      Quotations with their correct sense assignments:
+      {{examples}}
+
+  fewshot_examples_json:
+    description: >
+      VARIABLE (few-shot strategy only) — JSON demo format. Same demo SELECTION
+      as fewshot_examples (sense-balanced, FEWSHOT_K per lemma) but rendered in
+      the output_json schema so demos teach the model the format it will be
+      asked to produce (Min et al. EMNLP 2022; PROMPT_RECOMMENDATIONS.md §2.4).
+      Per demo: '"<quote>" -> {"justification": "<sense def>", "confidence": 5,
+      "sense_number": N}'. Field order matches output_json (rationale-first).
+      The justification text is the gold sense's definition (already visible
+      to the model in the candidate list — not leaky); confidence is 5 because
+      these are gold-standard demos.
+    vars:
+      - examples_json    # rendered: "<quote>" -> {<JSON payload>}, one per line
+    text: |
+      ## Examples
+
+      Quotations with their correct sense assignments, in the same JSON shape
+      you should produce:
+      {{examples_json}}
+
+  # ---------------------------------------------------------------------------
+  task_direct:
+    description: Task line for zero-shot and few-shot — no reasoning elicited.
+    text: |
+      ## Task
+
+      Which sense does this quotation belong to? If no sense fits, use "0".
+
+  task_direct_decomposed:
+    description: >
+      Decomposed / itemised task instruction — ABLATION CONDITION against
+      task_direct. Per Mishra et al. (ACL 2022) "Reframing Instructional
+      Prompts", decomposing instructions and listing steps explicitly
+      yields ~14pp average gains on tasks that mix decision and format
+      constraints. PROMPT_RECOMMENDATIONS.md §3.1 P2 ablation: test one
+      config on this variant; if signal is positive, generalise to other
+      task blocks. Output-format instruction remains in the separate
+      output_plain / output_json block (preserves the modular block
+      architecture; the recommendations doc's "step 4 = format" is the
+      output block in practice).
+    text: |
+      ## Task
+
+      Decide which sense the quotation belongs to by working through
+      these steps:
+      1. Read the candidate senses listed above.
+      2. Match the marked word in the quotation against each candidate.
+      3. Pick the sense that fits best. If none fits, use 0.
+
+  task_justified:
+    description: >
+      Structured-justification condition: direct answer plus a concise 1-2
+      sentence justification field. NOT open-ended reasoning (PLAN §2.2 note).
+    text: |
+      ## Task
+
+      Assign this quotation to the correct sense. If no sense fits, use "0".
+      Give a concise one to two sentence justification for your choice.
+
+  task_fullcot:
+    description: >
+      Full chain-of-thought ADD-ON (revision P2.2) — open-ended step-by-step
+      reasoning. Run on one strong model only, compared against task_justified.
+    vars:
+      - lemma
+    text: |
+      ## Task
+
+      Assign this quotation to the correct sense. Think step by step:
+      1. The grammatical role of {{lemma}} in this quotation.
+      2. What the surrounding context implies about its meaning here.
+      3. Which sense definition best matches that usage.
+      If no sense fits, use "0".
+
+  task_freeform:
+    description: >
+      Free-form ADD-ON (revision P1.1) — the model writes its own contextual
+      definition WITHOUT seeing the sense inventory. Output is mapped back to
+      the SLS inventory in post-processing by a judge LLM.
+    vars:
+      - lemma
+      - freeform_lang    # language the definition should be written in (la|pl)
+    text: |
+      ## Task
+
+      Write a one-sentence definition of the <WSD>-marked form of {{lemma}}
+      as it is used in this quotation. Write the definition in {{freeform_lang}}.
+      Do not choose from a list — define the word as used here.
+
+  # ---------------------------------------------------------------------------
+  output_plain:
+    description: >
+      Plain-text output contract. No literal example digit is given —
+      Zheng et al. (ICLR 2024) report token-prior bias toward digits
+      used as examples in MCQA prompts; using "3" as the literal
+      example risked nudging the model toward selecting sense 3
+      regardless of context (PROMPT_RECOMMENDATIONS.md §6 — agent
+      micro-inference, low confidence but trivial-cost mitigation).
+    text: |
+      Respond with ONLY the sense number, or 0 if no sense fits. No other text.
+
+  output_json:
+    description: >
+      Structured output contract. Field order is rationale-first
+      (justification before sense_number) so the justification tokens
+      condition the answer token rather than rationalising it after the
+      fact (PROMPT_RECOMMENDATIONS.md §1.2; Chen et al. 2025 on CoT
+      faithfulness; Sumanathilaka et al. 2026 on domain-targeted CoT
+      scaffolds). Confidence supports DReS-style calibration analysis
+      (Zhang et al. RoDEval EMNLP 2025). The justification ask names a
+      contextual feature, not a free-form rationale — the
+      domain-targeted scaffold from Sumanathilaka et al. 2026 EAD.
+      When using provider-side structured output, verify the emitted
+      order matches the schema; some Gemini SDK paths alphabetise keys
+      and would silently revert the order.
+    text: |
+      Respond in JSON only, using exactly these keys in this order:
+      {"justification": "...", "confidence": N, "sense_number": N}
+      - justification: one sentence naming the contextual feature that
+        drives the choice
+      - confidence: integer 1-5 (1 = very uncertain, 5 = very confident)
+      - sense_number: the sense number (for example 3), or 0 if no sense fits
+
+  output_justified_plain:
+    description: >
+      Plain-text output contract for the justified condition. Replaces
+      the (broken) pairing of task_justified with output_plain, which
+      contradicted itself ("give a justification" + "No other text").
+      Two lines, justification first then answer — mirrors the JSON
+      key order (rationale-before-answer per PROMPT_RECOMMENDATIONS.md
+      §1.1, §1.2; gives the rationale a causal role in the answer
+      rather than being post-hoc rationalisation). Parsed by
+      scripts/exp1_assert.py via a "SENSE: N" line-anchored regex.
+    text: |
+      Respond on exactly two lines, in this order:
+      JUSTIFICATION: <one sentence naming the contextual feature that drives the choice>
+      SENSE: <N>
+      where N is the sense number, or 0 if no sense fits.
+
+  output_freeform:
+    description: Output contract for the free-form add-on — definition only.
+    text: |
+      Respond with only the definition sentence. No sense ID, no other text.

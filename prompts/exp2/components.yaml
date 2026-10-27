@@ -1,0 +1,204 @@
+# =============================================================================
+# Experiment 2 — prompt component spec  (SOURCE OF TRUTH)
+# =============================================================================
+# Flat prompts in rendered/ are GENERATED from this file by render.py.
+# Edit blocks here; never edit rendered/*.txt.
+#
+# Each block has:
+#   text        — the literal prompt fragment (may contain {{run-time vars}})
+#   description — what the block is for / why it exists
+#   vars        — run-time placeholders this block introduces
+#   guard       — optional Nunjucks condition; block renders only when true
+#
+# Run-time variables NOT tied to a single block (set per promptfoo test case):
+#   def_language   : la | pl                  — which definition language fills {{senses}}
+#   context_length : kwic_only | kwic_plus_prev — toggles the previous-sentence block
+#
+# Mirrors prompts/exp1/components.yaml where possible; differs only in the
+# input-presentation block (concordance line vs dictionary quotation) and in
+# the context-length axis (which Exp 1 does not have).
+# =============================================================================
+
+meta:
+  experiment: exp2
+  task: assign an SLS dictionary sense to a Neo-Latin corpus occurrence
+  plan_ref: docs/PLAN.md §3 ; analysis/exp2_design_decisions.md "LLM evaluation"
+
+blocks:
+
+  # ---------------------------------------------------------------------------
+  system_role:
+    description: >
+      Persona and high-level framing. The Exp 1 wording referred to "quotations
+      from Latin texts written in medieval Poland"; this is adapted to
+      explicitly name the Neo-Latin corpus context — annotators see 16th–18th
+      c. Polish-Latin sociopolitical writing, the model should too. The
+      sense-inventory framing (medieval SLS senses applied to later usage) is
+      Exp 2's core research question (PLAN.md §1).
+    text: |
+      You are a lexicographer. You analyse passages from Latin texts written
+      in Poland (16th–18th century) to determine which sense of a Medieval
+      Latin dictionary entry the usage in the passage matches.
+
+  # ---------------------------------------------------------------------------
+  sense_inventory:
+    description: >
+      Candidate senses the model chooses from. Built by exp2_transform.py from
+      the lemma's curated SLS inventory (definition-bearing senses only).
+      Definition language is a run-time variable. The visible "0. No matching
+      sense" line is the 0-assignment option (PLAN.md §3.4 — central to Exp 2;
+      novel-sense candidates come from these). Lemma rendered as the upper-
+      case headword (e.g. "CIVITAS") to match the SLS entry convention even
+      though concordance hits are lower-cased.
+    vars:
+      - lemma
+      - senses
+    text: |
+      ## Dictionary entry: {{lemma}}
+
+      Candidate senses:
+      {{senses}}
+      0. No matching sense — the use does not fit any sense above.
+
+  # ---------------------------------------------------------------------------
+  concordance_line:
+    description: >
+      The KWIC sentence (sentence-bounded unit from the Neo-Latin corpus
+      sample) with the target form wrapped in <WSD>...</WSD>. Replaces Exp 1's
+      `quotation` block — same WSD-marker convention so the model never
+      guesses which token is the target, adapted for the sentence-bounded
+      input shape (Exp 1's quotations are editorially abbreviated; Exp 2's
+      are naturally bounded).
+    vars:
+      - sentence_wsd
+    text: |
+      ## Passage
+
+      {{sentence_wsd}}
+
+  # ---------------------------------------------------------------------------
+  prev_context:
+    description: >
+      VARIABLE (context_length axis). The sentence immediately preceding the
+      KWIC sentence. Rendered only when context_length == "kwic_plus_prev".
+      Asymmetric (previous only, not next): anaphoric resolution is the
+      dominant motivation per analysis/exp2_design_decisions.md "Context
+      length". The block goes ABOVE concordance_line so the model reads
+      context-then-passage in natural order.
+    guard: 'context_length == "kwic_plus_prev"'
+    vars:
+      - prev_sent
+    text: |
+      ## Preceding sentence
+
+      {{prev_sent}}
+
+  # ---------------------------------------------------------------------------
+  source_metadata:
+    description: >
+      VARIABLE (show_metadata axis — EXTENDED scenario only; see
+      analysis/exp2_design_decisions.md "Core vs extended scenarios"). One
+      natural-language sentence of provenance for the passage — genre, title,
+      author, 17th-century composition, subject domains — composed by
+      exp2_transform.py from data/final/exp2/metadata/metadata.csv, keyed on
+      siglum. Rendered only when show_metadata is true. Exp 2's analogue of
+      Exp 1's source_metadata, with three deliberate departures (methodology
+      log 2026-05-25): (a) full prose, not a "Source: x, y, z" field list —
+      fuller natural language is what the model uses best, the same mechanism
+      as the pl>la gloss gap; (b) the date is generalised to "17th century" to
+      avoid the written-vs-posthumously-published ambiguity (e.g. Vir Consilii
+      written c.1673, printed 1730); (c) placed AFTER the passage and before the
+      sense list — the slot Exp 1 uses relative to its quotation. The work title
+      is included deliberately (realistic "all context" condition); it can carry
+      a topic hint, disclosed as a limitation on the metadata effect.
+    guard: show_metadata
+    vars:
+      - source_meta
+    text: |
+      ## Source
+
+      {{source_meta}}
+
+  # ---------------------------------------------------------------------------
+  fewshot_examples:
+    description: >
+      VARIABLE (few-shot strategy only). Demonstrations drawn from the SLS
+      dictionary's quote pool — sense-balanced, disjoint from the Exp 2
+      corpus sample (the SLS quote pool is dictionary citations; the test
+      items are Neo-Latin corpus lines). The cross-paradigm match is
+      deliberate: per Min et al. EMNLP 2022 demos teach format and label-
+      space (which numbered sense is which), not input-label mappings, so
+      dictionary-quote demos teaching "Latin passage with <WSD> marker →
+      number" exercise the same format the model is asked to produce on a
+      corpus line. Sense-balanced selection follows the same rule as Exp 1
+      (PLAN.md §2.2; Sumanathilaka et al. 2025 "Prompt Balance Matters"). The
+      lead-in names the demos as dictionary quotations explicitly (2026-05-25):
+      accurate (they are SLS citations, not corpus lines) and it signals why the
+      demos are terser than the passage being judged.
+    vars:
+      - examples
+    text: |
+      ## Examples
+
+      Example quotations from the dictionary, each with its correct sense:
+      {{examples}}
+
+  # ---------------------------------------------------------------------------
+  task_direct:
+    description: Task line for zero-shot and few-shot — no reasoning elicited.
+    text: |
+      ## Task
+
+      Which sense does the marked use of the word in the passage belong to?
+      If no sense fits, use "0".
+
+  task_direct_decomposed:
+    description: >
+      Decomposed / itemised task instruction — parallel to Exp 1's
+      task_direct_decomposed. Mishra et al. (ACL 2022) "Reframing Instructional
+      Prompts" decomposition; the 0-option step is named explicitly so
+      candidate-novelty cases get a clean abstention path rather than a
+      pressed best-guess.
+    text: |
+      ## Task
+
+      Decide which sense the marked use belongs to by working through
+      these steps:
+      1. Read the candidate senses listed above.
+      2. Match the marked word in the passage against each candidate.
+      3. Pick the sense that fits best. If no sense fits, use "0".
+
+  task_justified:
+    description: >
+      Structured-justification condition: direct answer plus a concise 1-2
+      sentence justification field. Same rationale as Exp 1: a short
+      domain-targeted scaffold rather than open-ended CoT (PROMPT_
+      RECOMMENDATIONS.md §1.2; Chen et al. 2025 on CoT faithfulness).
+    text: |
+      ## Task
+
+      Assign the marked use of the word to the correct sense. If no sense
+      fits, use "0".
+      Give a concise one to two sentence justification for your choice.
+
+  # ---------------------------------------------------------------------------
+  output_plain:
+    description: >
+      Plain-text output contract. No literal example digit (Zheng et al. ICLR
+      2024 token-prior bias). 0 is named explicitly because abstention is a
+      paper-central output category in Exp 2 (PLAN.md §3.4).
+    text: |
+      Respond with ONLY the sense number, or 0 if no sense fits. No
+      other text.
+
+  output_justified_plain:
+    description: >
+      Plain-text output contract for the justified condition. Two-line shape
+      mirrors Exp 1's output_justified_plain — rationale-before-answer so the
+      justification tokens condition the answer token. Parsed by
+      scripts/exp2_assert.py via the shared "SENSE: N" regex.
+    text: |
+      Respond on exactly two lines, in this order:
+      JUSTIFICATION: <one sentence naming the contextual feature that drives the choice>
+      SENSE: <N>
+      where N is the sense number, or 0 if no sense fits.

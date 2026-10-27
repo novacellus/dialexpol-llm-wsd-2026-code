@@ -1,0 +1,49 @@
+# =============================================================================
+# Experiment 2 — template conditions
+# =============================================================================
+# Each entry under `templates:` is ONE rendered .txt file. `blocks` is the
+# ordered list of component blocks (from components.yaml) composed into it.
+#
+# Build-time composition only. The orthogonal run-time axes (def_language,
+# context_length, show_metadata) are NOT separate templates — they are
+# promptfoo variables applied per test case. Two run scenarios (separate yamls;
+# analysis/exp2_design_decisions.md "Core vs extended scenarios"):
+#   CORE     — exp1-analogous: 4 templates × 2 def_languages × kwic_only ×
+#              meta off = 8 cells/provider (the headline result).
+#   EXTENDED — adds the context (kwic_plus_prev) and metadata (show_metadata)
+#              axes for the full 4 × 2 × 2 × 2 = 32-cell grid; the 24 cells not
+#              in CORE are run as future-work / showcase (disjoint, no overlap).
+#
+# JSON output is dropped from Exp 2 v1 on the settled-effect Phase A finding
+# (Δ = −16.6 pp plain vs json; methodology_log 2026-05-16c). If a v2 needs
+# JSON, add output_json + *_json templates here mirroring prompts/exp1/.
+# =============================================================================
+
+runtime_axes:
+  def_language:                # which definition language fills {{senses}}
+    values: [la, pl]
+  context_length:              # toggles the prev_context block
+    values: [kwic_only, kwic_plus_prev]
+  show_metadata:               # toggles the source_metadata block (EXTENDED scenario)
+    values: [false, true]
+
+templates:
+
+  # --- 4 base templates: zeroshot / fewshot / justified / decomposed --------
+  # Block ordering mirrors Exp 1's conditions.yaml: passage in primacy, sense
+  # inventory immediately before the task (decision-relevant block right
+  # before the decision; Liu et al. TACL 2024 "Lost-in-the-Middle"). The
+  # optional prev_context block sits ABOVE the passage so the model reads
+  # context-then-passage in natural narrative order.
+
+  exp2_zeroshot:
+    blocks: [system_role, prev_context, concordance_line, source_metadata, sense_inventory, task_direct, output_plain]
+
+  exp2_zeroshot_decomposed:
+    blocks: [system_role, prev_context, concordance_line, source_metadata, sense_inventory, task_direct_decomposed, output_plain]
+
+  exp2_fewshot:
+    blocks: [system_role, sense_inventory, fewshot_examples, prev_context, concordance_line, source_metadata, task_direct, output_plain]
+
+  exp2_justified:
+    blocks: [system_role, prev_context, concordance_line, source_metadata, sense_inventory, task_justified, output_justified_plain]

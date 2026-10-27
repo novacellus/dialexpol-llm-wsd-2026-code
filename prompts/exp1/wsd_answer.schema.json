@@ -1,0 +1,10 @@
+{
+  "type": "object",
+  "properties": {
+    "justification": {"type": "string"},
+    "confidence": {"type": "integer"},
+    "sense_number": {"type": "integer"}
+  },
+  "required": ["justification", "confidence", "sense_number"],
+  "additionalProperties": false
+}
